@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stump — Live Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=IBM+Plex+Mono:wght@400;500;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:      #0f1a10;
+    --s1:      #162018;
+    --s2:      #1e2e20;
+    --border:  #2a3d2c;
+    --green:   #7ec850;
+    --amber:   #e8a93a;
+    --red:     #e05c4a;
+    --bark:    #8b6240;
+    --text:    #ddeedd;
+    --muted:   #557055;
+    --mono:    'IBM Plex Mono', monospace;
+    --round:   'Nunito', sans-serif;
+    --display: 'Fredoka One', cursive;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:var(--round); min-height:100vh; }
+
+body::before {
+content:’’;
+position:fixed; inset:0;
+background-image:
+repeating-linear-gradient(92deg, transparent, transparent 38px, rgba(126,200,80,0.015) 38px, rgba(126,200,80,0.015) 39px),
+repeating-linear-gradient(180deg, transparent, transparent 54px, rgba(139,98,64,0.02) 54px, rgba(139,98,64,0.02) 55px);
+pointer-events:none; z-index:0;
+}
+
+body::after {
+content:’’;
+position:fixed; bottom:-15%; left:-10%;
+width:600px; height:600px;
+background:radial-gradient(circle, rgba(126,200,80,0.05) 0%, transparent 65%);
+pointer-events:none; z-index:0;
+}
+
+.wrap { max-width:1200px; margin:0 auto; padding:0 16px; position:relative; z-index:1; }
+
+/* HEADER */
+header {
+padding:18px 0 16px;
+border-bottom:1px solid var(–border);
+display:flex; align-items:center; justify-content:space-between;
+flex-wrap:wrap; gap:12px;
+}
+.brand { display:flex; align-items:center; gap:10px; }
+.brand-name { font-family:var(–display); font-size:26px; color:var(–green); text-shadow:0 0 20px rgba(126,200,80,0.35); }
+.brand-sub { font-family:var(–mono); font-size:10px; color:var(–muted); letter-spacing:.12em; text-transform:uppercase; margin-top:2px; }
+
+.header-right { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.live-dot { width:8px; height:8px; border-radius:50%; background:var(–green); box-shadow:0 0 10px var(–green); animation:pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.75)} }
+.clock { font-family:var(–mono); font-size:11px; color:var(–muted); }
+
+/* SETUP SCREEN */
+.setup-screen {
+display:flex; flex-direction:column; align-items:center; justify-content:center;
+min-height:70vh; gap:20px; text-align:center; padding:40px 20px;
+}
+.setup-icon { font-size:48px; margin-bottom:8px; }
+.setup-title { font-family:var(–display); font-size:28px; color:var(–green); }
+.setup-sub { font-family:var(–mono); font-size:12px; color:var(–muted); margin-bottom:8px; }
+.setup-form { display:flex; flex-direction:column; gap:12px; width:100%; max-width:400px; }
+.setup-input {
+background:var(–s2); border:1px solid var(–border); color:var(–text);
+font-family:var(–mono); font-size:13px; padding:12px 16px;
+border-radius:8px; outline:none; transition:border-color .2s;
+}
+.setup-input:focus { border-color:var(–green); }
+.setup-input::placeholder { color:var(–muted); }
+.setup-label { font-family:var(–mono); font-size:10px; color:var(–muted); text-align:left; text-transform:uppercase; letter-spacing:.1em; margin-bottom:-6px; }
+.btn-connect {
+background:var(–green); color:#0a1a0a; border:none;
+font-family:var(–mono); font-size:13px; font-weight:700;
+padding:13px; border-radius:8px; cursor:pointer;
+transition:all .15s; text-transform:uppercase; letter-spacing:.06em;
+}
+.btn-connect:hover { background:#9adc6a; box-shadow:0 0 20px rgba(126,200,80,0.4); }
+.setup-note { font-family:var(–mono); font-size:10px; color:var(–muted); max-width:360px; line-height:1.6; }
+
+/* MAIN DASHBOARD */
+.dashboard { display:none; }
+
+/* PORTFOLIO STRIP */
+.portfolio-strip {
+display:grid; grid-template-columns:repeat(4,1fr);
+gap:12px; padding:20px 0 0;
+}
+@media(max-width:700px) { .portfolio-strip { grid-template-columns:repeat(2,1fr); } }
+
+.port-card {
+background:var(–s1); border:1px solid var(–border);
+border-radius:10px; padding:14px 16px;
+animation:fadeIn .4s ease forwards;
+}
+@keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+.port-label { font-family:var(–mono); font-size:10px; color:var(–muted); text-transform:uppercase; letter-spacing:.1em; margin-bottom:6px; }
+.port-val { font-family:var(–display); font-size:26px; line-height:1; }
+.port-sub { font-family:var(–mono); font-size:11px; color:var(–muted); margin-top:4px; }
+
+/* MAIN GRID */
+.main-grid {
+display:grid; grid-template-columns:1fr 340px;
+gap:16px; padding:16px 0 40px;
+}
+@media(max-width:900px) { .main-grid { grid-template-columns:1fr; } }
+
+/* PANELS */
+.panel { background:var(–s1); border:1px solid var(–border); border-radius:10px; overflow:hidden; margin-bottom:14px; }
+.panel-header {
+padding:13px 16px; border-bottom:1px solid var(–border);
+display:flex; align-items:center; justify-content:space-between;
+background:rgba(30,46,32,.5);
+}
+.panel-title { font-family:var(–mono); font-size:10px; text-transform:uppercase; letter-spacing:.15em; color:var(–muted); }
+.panel-body { padding:16px; }
+
+/* SIGNALS */
+.signal-card {
+background:var(–s2); border:1px solid var(–border);
+border-radius:8px; padding:14px 16px; margin-bottom:10px;
+position:relative; overflow:hidden;
+animation:fadeIn .35s ease forwards; opacity:0;
+}
+.signal-card::before { content:’’; position:absolute; left:0; top:0; bottom:0; width:3px; border-radius:0 2px 2px 0; }
+.signal-card.BUY::before { background:var(–green); }
+.signal-card.SELL::before { background:var(–red); }
+.signal-card.HOLD::before { background:var(–amber); }
+
+.sig-top { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.sig-ticker { font-family:var(–display); font-size:20px; line-height:1; }
+.sig-price { font-family:var(–mono); font-size:12px; color:var(–muted); margin-top:3px; }
+
+.sig-badge { padding:4px 12px; border-radius:20px; font-family:var(–mono); font-size:11px; font-weight:700; }
+.sig-badge.BUY  { background:rgba(126,200,80,.15); color:var(–green); border:1px solid rgba(126,200,80,.3); }
+.sig-badge.SELL { background:rgba(224,92,74,.15);  color:var(–red);   border:1px solid rgba(224,92,74,.3); }
+.sig-badge.HOLD { background:rgba(232,169,58,.15); color:var(–amber); border:1px solid rgba(232,169,58,.3); }
+
+.conf-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.conf-label { font-family:var(–mono); font-size:10px; color:var(–muted); text-transform:uppercase; white-space:nowrap; }
+.conf-track { flex:1; height:4px; background:var(–border); border-radius:2px; overflow:hidden; }
+.conf-fill { height:100%; border-radius:2px; transition:width 1s ease; }
+.conf-pct { font-family:var(–mono); font-size:11px; font-weight:700; min-width:34px; text-align:right; }
+
+.sig-reason { font-size:12px; line-height:1.65; color:#8aaa88; border-top:1px solid var(–border); padding-top:10px; }
+.sig-levels { display:flex; gap:12px; margin-top:10px; flex-wrap:wrap; }
+.sig-level { font-family:var(–mono); font-size:10px; color:var(–muted); }
+.sig-level strong { color:var(–text); display:block; font-size:11px; margin-bottom:1px; }
+
+.sig-time { font-family:var(–mono); font-size:10px; color:var(–muted); margin-top:8px; }
+
+/* TRADES */
+.trade-row {
+display:flex; align-items:center; justify-content:space-between;
+padding:11px 0; border-bottom:1px solid var(–border); gap:12px;
+}
+.trade-row:last-child { border-bottom:none; }
+.trade-left { display:flex; align-items:center; gap:10px; }
+.trade-icon {
+width:32px; height:32px; border-radius:6px;
+display:flex; align-items:center; justify-content:center;
+font-family:var(–mono); font-size:10px; font-weight:700;
+background:var(–s2); border:1px solid var(–border); color:var(–muted); flex-shrink:0;
+}
+.trade-ticker { font-family:var(–display); font-size:16px; line-height:1; }
+.trade-meta { font-family:var(–mono); font-size:10px; color:var(–muted); }
+.trade-right { text-align:right; }
+.trade-amt { font-family:var(–mono); font-size:13px; }
+.trade-status { font-family:var(–mono); font-size:10px; margin-top:2px; }
+
+/* POSITIONS */
+.pos-row {
+display:flex; align-items:center; justify-content:space-between;
+padding:11px 0; border-bottom:1px solid var(–border); gap:12px;
+}
+.pos-row:last-child { border-bottom:none; }
+.pos-ticker { font-family:var(–display); font-size:16px; }
+.pos-qty { font-family:var(–mono); font-size:10px; color:var(–muted); }
+.pos-right { text-align:right; }
+.pos-val { font-family:var(–mono); font-size:13px; }
+.pos-pl { font-family:var(–mono); font-size:11px; margin-top:2px; }
+
+/* EMPTY / LOADING */
+.empty { text-align:center; padding:40px 20px; color:var(–muted); font-family:var(–mono); font-size:11px; }
+.empty-icon { font-size:30px; margin-bottom:8px; opacity:.3; }
+.spinner { width:24px; height:24px; border:2px solid var(–border); border-top-color:var(–green); border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 10px; }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+/* REFRESH BTN */
+.btn-refresh {
+background:transparent; border:1px solid var(–border); color:var(–muted);
+font-family:var(–mono); font-size:10px; padding:4px 10px;
+border-radius:20px; cursor:pointer; transition:all .15s;
+text-transform:uppercase; letter-spacing:.05em;
+}
+.btn-refresh:hover { border-color:var(–green); color:var(–green); }
+
+/* DISCONNECT */
+.btn-disconnect {
+background:transparent; border:1px solid var(–border); color:var(–muted);
+font-family:var(–mono); font-size:10px; padding:5px 12px;
+border-radius:20px; cursor:pointer; transition:all .15s;
+}
+.btn-disconnect:hover { border-color:var(–red); color:var(–red); }
+
+.tag { display:inline-block; padding:1px 7px; border-radius:10px; font-family:var(–mono); font-size:9px; text-transform:uppercase; }
+.tag-paper { background:rgba(232,169,58,.12); color:var(–amber); }
+.tag-live  { background:rgba(224,92,74,.12);  color:var(–red); }
+.tag-crypto { background:rgba(126,200,80,.12); color:var(–green); }
+.tag-stock  { background:rgba(232,169,58,.12); color:var(–amber); }
+
+.divider { height:1px; background:var(–border); margin:12px 0; }
+
+.scrollable { max-height:500px; overflow-y:auto; }
+.scrollable::-webkit-scrollbar { width:3px; }
+.scrollable::-webkit-scrollbar-thumb { background:var(–border); border-radius:2px; }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HEADER -->
+
+  <header>
+    <div class="brand">
+      <svg width="44" height="44" viewBox="0 0 52 52" fill="none">
+        <path d="M14 42 Q10 46 7 50" stroke="#6b4a2a" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M20 44 Q18 48 16 51" stroke="#6b4a2a" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M32 44 Q34 48 36 51" stroke="#6b4a2a" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M38 42 Q42 46 45 50" stroke="#6b4a2a" stroke-width="2.5" stroke-linecap="round"/>
+        <rect x="10" y="30" width="32" height="14" rx="3" fill="#8b6240"/>
+        <line x1="10" y1="35" x2="10" y2="42" stroke="#6b4a2a" stroke-width="1.2" stroke-linecap="round"/>
+        <line x1="42" y1="35" x2="42" y2="42" stroke="#6b4a2a" stroke-width="1.2" stroke-linecap="round"/>
+        <ellipse cx="26" cy="30" rx="16" ry="5.5" fill="#a07848"/>
+        <ellipse cx="26" cy="30" rx="13" ry="4.2" fill="none" stroke="#8b6240" stroke-width="1.2"/>
+        <ellipse cx="26" cy="30" rx="9"  ry="2.9" fill="none" stroke="#8b6240" stroke-width="1"/>
+        <ellipse cx="26" cy="30" rx="5"  ry="1.6" fill="none" stroke="#8b6240" stroke-width=".8"/>
+        <circle cx="26" cy="30" r="1.2" fill="#6b4a2a"/>
+        <path d="M26 27 Q26 18 22 14" stroke="#7ec850" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <path d="M26 22 Q30 16 35 16" stroke="#7ec850" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <ellipse cx="21" cy="13" rx="5" ry="3.5" fill="#7ec850" transform="rotate(-20 21 13)"/>
+        <ellipse cx="35.5" cy="15.5" rx="5" ry="3" fill="#9adc6a" transform="rotate(15 35 15)"/>
+        <circle cx="26" cy="26.5" r="1.5" fill="#9adc6a"/>
+      </svg>
+      <div>
+        <div class="brand-name">Stump</div>
+        <div class="brand-sub">Live Dashboard</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="live-dot" id="liveDot" style="background:var(--muted);box-shadow:none"></div>
+      <span class="clock" id="clock">--:--:-- UTC</span>
+      <button class="btn-disconnect" id="disconnectBtn" onclick="disconnect()" style="display:none">Disconnect</button>
+    </div>
+  </header>
+
+  <!-- SETUP SCREEN -->
+
+  <div class="setup-screen" id="setupScreen">
+    <div class="setup-icon">🌳</div>
+    <div class="setup-title">Connect to Stump</div>
+    <div class="setup-sub">Enter your Alpaca paper trading keys to see live data</div>
+    <div class="setup-form">
+      <div class="setup-label">Alpaca Key ID</div>
+      <input class="setup-input" id="keyId" type="password" placeholder="PK...">
+      <div class="setup-label">Alpaca Secret Key</div>
+      <input class="setup-input" id="secretKey" type="password" placeholder="Your secret key">
+      <div class="setup-label">Mode</div>
+      <select class="setup-input" id="modeSelect">
+        <option value="paper">Paper Trading</option>
+        <option value="live">Live Trading</option>
+      </select>
+      <button class="btn-connect" onclick="connect()">Connect to Alpaca</button>
+    </div>
+    <div class="setup-note">Your keys are stored locally in your browser only. They are never sent anywhere except directly to Alpaca's API.</div>
+  </div>
+
+  <!-- DASHBOARD -->
+
+  <div class="dashboard" id="dashboard">
+
+```
+<!-- PORTFOLIO STRIP -->
+<div class="portfolio-strip">
+  <div class="port-card">
+    <div class="port-label">Portfolio Value</div>
+    <div class="port-val" id="portValue">--</div>
+    <div class="port-sub" id="portSub">--</div>
+  </div>
+  <div class="port-card">
+    <div class="port-label">Buying Power</div>
+    <div class="port-val" id="buyingPower">--</div>
+    <div class="port-sub" id="bpSub">Available cash</div>
+  </div>
+  <div class="port-card">
+    <div class="port-label">Today P&L</div>
+    <div class="port-val" id="todayPL">--</div>
+    <div class="port-sub" id="todayPLPct">--</div>
+  </div>
+  <div class="port-card">
+    <div class="port-label">Open Positions</div>
+    <div class="port-val" id="posCount">--</div>
+    <div class="port-sub" id="posSub">--</div>
+  </div>
+</div>
+
+<!-- MAIN GRID -->
+<div class="main-grid">
+
+  <!-- LEFT: SIGNALS + TRADES -->
+  <div>
+    <!-- SIGNALS -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Latest Signals</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="panel-title" id="sigTime">--</span>
+          <button class="btn-refresh" onclick="loadSignals()">Refresh</button>
+        </div>
+      </div>
+      <div class="panel-body scrollable" id="signalsPanel">
+        <div class="empty"><div class="empty-icon">🌱</div>No signals yet. Stump runs every 30 minutes.</div>
+      </div>
+    </div>
+
+    <!-- TRADE HISTORY -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Trade History</span>
+        <button class="btn-refresh" onclick="loadOrders()">Refresh</button>
+      </div>
+      <div class="panel-body scrollable" id="ordersPanel">
+        <div class="empty"><div class="spinner"></div>Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: POSITIONS -->
+  <div>
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Open Positions</span>
+        <button class="btn-refresh" onclick="loadPositions()">Refresh</button>
+      </div>
+      <div class="panel-body" id="positionsPanel">
+        <div class="empty"><div class="spinner"></div>Loading...</div>
+      </div>
+    </div>
+
+    <!-- ACCOUNT INFO -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Account</span>
+        <span class="panel-title" id="accountMode">--</span>
+      </div>
+      <div class="panel-body" id="accountPanel">
+        <div class="empty"><div class="spinner"></div>Loading...</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+```
+
+  </div>
+
+</div>
+
+<script>
+// ── STATE ──
+let ALPACA_KEY = "";
+let ALPACA_SECRET = "";
+let BASE_URL = "https://paper-api.alpaca.markets";
+let DATA_URL = "https://data.alpaca.markets";
+let signals = [];
+
+// ── CLOCK ──
+function updateClock() {
+  document.getElementById("clock").textContent = new Date().toUTCString().split(" ")[4] + " UTC";
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── CONNECT ──
+function connect() {
+  const keyId = document.getElementById("keyId").value.trim();
+  const secret = document.getElementById("secretKey").value.trim();
+  const mode = document.getElementById("modeSelect").value;
+  if (!keyId || !secret) { alert("Please enter both keys."); return; }
+  ALPACA_KEY = keyId;
+  ALPACA_SECRET = secret;
+  BASE_URL = mode === "live" ? "https://api.alpaca.markets" : "https://paper-api.alpaca.markets";
+  localStorage.setItem("stump_key", keyId);
+  localStorage.setItem("stump_secret", secret);
+  localStorage.setItem("stump_mode", mode);
+  showDashboard();
+}
+
+function disconnect() {
+  localStorage.removeItem("stump_key");
+  localStorage.removeItem("stump_secret");
+  localStorage.removeItem("stump_mode");
+  ALPACA_KEY = "";
+  ALPACA_SECRET = "";
+  document.getElementById("setupScreen").style.display = "flex";
+  document.getElementById("dashboard").style.display = "none";
+  document.getElementById("disconnectBtn").style.display = "none";
+  setLiveDot(false);
+}
+
+function showDashboard() {
+  document.getElementById("setupScreen").style.display = "none";
+  document.getElementById("dashboard").style.display = "block";
+  document.getElementById("disconnectBtn").style.display = "block";
+  loadAll();
+  setInterval(loadAll, 60000);
+}
+
+// Auto-reconnect from localStorage
+window.addEventListener("load", function() {
+  const k = localStorage.getItem("stump_key");
+  const s = localStorage.getItem("stump_secret");
+  const m = localStorage.getItem("stump_mode") || "paper";
+  if (k && s) {
+    ALPACA_KEY = k;
+    ALPACA_SECRET = s;
+    BASE_URL = m === "live" ? "https://api.alpaca.markets" : "https://paper-api.alpaca.markets";
+    document.getElementById("keyId").value = k;
+    document.getElementById("secretKey").value = s;
+    document.getElementById("modeSelect").value = m;
+    showDashboard();
+  }
+});
+
+// ── ALPACA FETCH ──
+function alpacaFetch(url) {
+  return fetch(url, {
+    headers: {
+      "APCA-API-KEY-ID": ALPACA_KEY,
+      "APCA-API-SECRET-KEY": ALPACA_SECRET,
+    }
+  });
+}
+
+function setLiveDot(on) {
+  const dot = document.getElementById("liveDot");
+  if (on) {
+    dot.style.background = "var(--green)";
+    dot.style.boxShadow = "0 0 10px var(--green)";
+  } else {
+    dot.style.background = "var(--muted)";
+    dot.style.boxShadow = "none";
+  }
+}
+
+function fmt(n) {
+  return "$" + parseFloat(n).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+// ── LOAD ALL ──
+function loadAll() {
+  loadAccount();
+  loadPositions();
+  loadOrders();
+  loadSignals();
+}
+
+// ── ACCOUNT ──
+async function loadAccount() {
+  try {
+    const resp = await alpacaFetch(BASE_URL + "/v2/account");
+    if (!resp.ok) throw new Error("Auth failed");
+    const a = await resp.json();
+    setLiveDot(true);
+
+    const equity = parseFloat(a.equity);
+    const lastEq = parseFloat(a.last_equity);
+    const pl = equity - lastEq;
+    const plPct = ((pl / lastEq) * 100).toFixed(2);
+    const bp = parseFloat(a.buying_power);
+    const positions = parseInt(a.position_market_value > 0 ? "..." : "0");
+    const mode = BASE_URL.includes("paper") ? "PAPER" : "LIVE";
+
+    document.getElementById("portValue").textContent = fmt(equity);
+    document.getElementById("portSub").textContent = "Total equity";
+    document.getElementById("buyingPower").textContent = fmt(bp);
+    document.getElementById("todayPL").textContent = (pl >= 0 ? "+" : "") + fmt(pl);
+    document.getElementById("todayPL").style.color = pl >= 0 ? "var(--green)" : "var(--red)";
+    document.getElementById("todayPLPct").textContent = (pl >= 0 ? "+" : "") + plPct + "% today";
+    document.getElementById("todayPLPct").style.color = pl >= 0 ? "var(--green)" : "var(--red)";
+    document.getElementById("accountMode").textContent = mode;
+    document.getElementById("accountMode").style.color = mode === "PAPER" ? "var(--amber)" : "var(--red)";
+
+    document.getElementById("accountPanel").innerHTML =
+      "<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:10px\">" +
+      stat("Cash", fmt(a.cash)) +
+      stat("Day Trade Count", a.daytrade_count) +
+      stat("Pattern Day Trader", a.pattern_day_trader ? "Yes" : "No") +
+      stat("Account Status", a.status) +
+      "</div>";
+
+  } catch(e) {
+    setLiveDot(false);
+    document.getElementById("accountPanel").innerHTML = "<div class=\"empty\">Could not connect to Alpaca. Check your keys.</div>";
+  }
+}
+
+function stat(label, val) {
+  return "<div style=\"background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:10px\">" +
+    "<div style=\"font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px\">" + label + "</div>" +
+    "<div style=\"font-family:var(--mono);font-size:13px\">" + val + "</div>" +
+    "</div>";
+}
+
+// ── POSITIONS ──
+async function loadPositions() {
+  const panel = document.getElementById("positionsPanel");
+  try {
+    const resp = await alpacaFetch(BASE_URL + "/v2/positions");
+    const positions = await resp.json();
+    document.getElementById("posCount").textContent = positions.length;
+    document.getElementById("posSub").textContent = positions.length === 1 ? "position" : "positions";
+
+    if (!positions.length) {
+      panel.innerHTML = "<div class=\"empty\"><div class=\"empty-icon\">🌱</div>No open positions yet.</div>";
+      return;
+    }
+
+    panel.innerHTML = positions.map(function(p) {
+      const pl = parseFloat(p.unrealized_pl);
+      const plPct = parseFloat(p.unrealized_plpc) * 100;
+      const isPos = pl >= 0;
+      const type = p.asset_class === "crypto" ? "crypto" : "stock";
+      return "<div class=\"pos-row\">" +
+        "<div><div class=\"pos-ticker\">" + p.symbol.replace("/USD","") + "</div>" +
+        "<div class=\"pos-qty\"><span class=\"tag tag-" + type + "\">" + type + "</span> " + parseFloat(p.qty).toFixed(4) + " units</div></div>" +
+        "<div class=\"pos-right\">" +
+        "<div class=\"pos-val\">" + fmt(p.market_value) + "</div>" +
+        "<div class=\"pos-pl\" style=\"color:" + (isPos?"var(--green)":"var(--red)") + "\">" +
+        (isPos?"+":"") + fmt(pl) + " (" + (isPos?"+":"") + plPct.toFixed(2) + "%)</div>" +
+        "</div></div>";
+    }).join("");
+  } catch(e) {
+    panel.innerHTML = "<div class=\"empty\">Could not load positions.</div>";
+  }
+}
+
+// ── ORDERS ──
+async function loadOrders() {
+  const panel = document.getElementById("ordersPanel");
+  try {
+    const resp = await alpacaFetch(BASE_URL + "/v2/orders?status=all&limit=20&direction=desc");
+    const orders = await resp.json();
+
+    if (!orders.length) {
+      panel.innerHTML = "<div class=\"empty\"><div class=\"empty-icon\">🌱</div>No trades yet. Waiting for a 75%+ signal.</div>";
+      return;
+    }
+
+    panel.innerHTML = orders.map(function(o) {
+      const side = o.side.toUpperCase();
+      const sideColor = side === "BUY" ? "var(--green)" : "var(--red)";
+      const status = o.status.replace(/_/g," ");
+      const symbol = o.symbol.replace("/USD","");
+      const amt = o.notional ? fmt(o.notional) : (o.qty + " units");
+      const time = new Date(o.created_at).toLocaleString();
+      const mode = BASE_URL.includes("paper") ? "PAPER" : "LIVE";
+      return "<div class=\"trade-row\">" +
+        "<div class=\"trade-left\">" +
+        "<div class=\"trade-icon\">" + symbol.slice(0,3) + "</div>" +
+        "<div><div class=\"trade-ticker\">" + symbol + "</div>" +
+        "<div class=\"trade-meta\">" + time + " &middot; <span class=\"tag tag-" + (mode==="PAPER"?"paper":"live") + "\">" + mode + "</span></div></div>" +
+        "</div>" +
+        "<div class=\"trade-right\">" +
+        "<div class=\"trade-amt\" style=\"color:" + sideColor + "\">" + side + " " + amt + "</div>" +
+        "<div class=\"trade-status\" style=\"color:var(--muted)\">" + status + "</div>" +
+        "</div></div>";
+    }).join("");
+  } catch(e) {
+    panel.innerHTML = "<div class=\"empty\">Could not load orders.</div>";
+  }
+}
+
+// ── SIGNALS (stored locally from Telegram-equivalent data) ──
+function loadSignals() {
+  const panel = document.getElementById("signalsPanel");
+  const stored = localStorage.getItem("stump_signals");
+  if (!stored) {
+    panel.innerHTML = "<div class=\"empty\"><div class=\"empty-icon\">🌱</div>No signals yet this session. Signals appear here after each bot cycle.</div>";
+    return;
+  }
+  try {
+    const data = JSON.parse(stored);
+    signals = data.signals || [];
+    const snapshot = data.snapshot || {};
+    const ts = data.timestamp || "";
+    document.getElementById("sigTime").textContent = ts ? "Last: " + new Date(ts).toLocaleTimeString() : "--";
+
+    if (!signals.length) {
+      panel.innerHTML = "<div class=\"empty\"><div class=\"empty-icon\">🌱</div>No signals yet.</div>";
+      return;
+    }
+
+    panel.innerHTML = signals.map(function(sig, i) {
+      const confColor = sig.confidence >= 75 ? "var(--green)" : sig.confidence >= 60 ? "var(--amber)" : "var(--red)";
+      const price = snapshot[sig.ticker] ? snapshot[sig.ticker].price : 0;
+      const chg = snapshot[sig.ticker] ? snapshot[sig.ticker].change_24h : 0;
+      const chgStr = (chg >= 0 ? "+" : "") + chg.toFixed(2) + "%";
+      return "<div class=\"signal-card " + sig.signal + "\" style=\"animation-delay:" + (i*.08) + "s\">" +
+        "<div class=\"sig-top\">" +
+        "<div><div class=\"sig-ticker\">" + sig.ticker + "</div>" +
+        "<div class=\"sig-price\">$" + (price > 1000 ? Math.round(price).toLocaleString() : price.toFixed(price < 1 ? 4 : 2)) + " <span style=\"color:" + (chg>=0?"var(--green)":"var(--red)") + "\">" + chgStr + "</span></div></div>" +
+        "<div style=\"text-align:right\"><div class=\"sig-badge " + sig.signal + "\">" + sig.signal + "</div>" +
+        "<div style=\"font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:4px\">" + (sig.timeframe||"--") + " frame</div></div>" +
+        "</div>" +
+        "<div class=\"conf-row\">" +
+        "<div class=\"conf-label\">Confidence</div>" +
+        "<div class=\"conf-track\"><div class=\"conf-fill\" style=\"width:" + sig.confidence + "%;background:" + confColor + "\"></div></div>" +
+        "<div class=\"conf-pct\" style=\"color:" + confColor + "\">" + sig.confidence + "%</div>" +
+        "</div>" +
+        "<div class=\"sig-reason\">" + (sig.reasoning||"") + "</div>" +
+        (sig.entry ? "<div class=\"sig-levels\">" +
+          "<div class=\"sig-level\"><strong>$" + sig.entry.toLocaleString() + "</strong>Entry</div>" +
+          "<div class=\"sig-level\"><strong style=\"color:var(--green)\">$" + sig.target.toLocaleString() + "</strong>Target</div>" +
+          "<div class=\"sig-level\"><strong style=\"color:var(--red)\">$" + sig.stop.toLocaleString() + "</strong>Stop</div>" +
+          "<div class=\"sig-level\"><strong>" + (sig.risk_reward||"--") + "</strong>R:R</div>" +
+          "</div>" : "") +
+        "</div>";
+    }).join("");
+  } catch(e) {
+    panel.innerHTML = "<div class=\"empty\">Error loading signals.</div>";
+  }
+}
+
+// ── EXPOSE: bot writes signals here via localStorage ──
+window.stumpWriteSignals = function(signalData) {
+  localStorage.setItem("stump_signals", JSON.stringify({
+    signals: signalData.signals,
+    snapshot: signalData.snapshot,
+    timestamp: new Date().toISOString()
+  }));
+  loadSignals();
+};
+</script>
+
+</body>
+</html>
