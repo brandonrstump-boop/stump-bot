@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from ai_signals import is_actionable
 
 load_dotenv()
-log = logging.getLogger(“stump.trader”)
+
 ALPACA_KEY_ID = os.getenv(“ALPACA_KEY_ID”)
 ALPACA_SECRET = os.getenv(“ALPACA_SECRET_KEY”)
 ALPACA_BASE_URL = os.getenv(“ALPACA_BASE_URL”, “https://paper-api.alpaca.markets”)
