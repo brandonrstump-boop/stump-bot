@@ -127,4 +127,4 @@ trade_record = {
 executed.append(trade_record)
 daily[“trades”].append(trade_record)
 save_daily_state(daily)
-return executed
+return executed 
