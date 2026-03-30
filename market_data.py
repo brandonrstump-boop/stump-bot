@@ -4,7 +4,7 @@ import logging
 from dotenv import load_dotenv
 
 load_dotenv()
-log = logging.getLogger("stump.data")
+
 ALPACA_KEY_ID = os.getenv(“ALPACA_KEY_ID”)
 ALPACA_SECRET = os.getenv(“ALPACA_SECRET_KEY”)
 TWELVE_DATA_KEY = os.getenv(“TWELVE_DATA_KEY”)
