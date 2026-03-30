@@ -11,7 +11,7 @@ from alerts import send_telegram
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format=”%(asctime)s [%(levelname)s] %(message)s”, datefmt=”%Y-%m-%d %H:%M:%S”)
-log = logging.getLogger(“stump”)
+
 STOCK_TICKERS = os.getenv(“STOCK_TICKERS”, “AAPL,NVDA,MSFT”).split(”,”)
 CRYPTO_TICKERS = os.getenv(“CRYPTO_TICKERS”, “BTC,ETH,SOL”).split(”,”)
 INTERVAL_MINS = int(os.getenv(“ANALYSIS_INTERVAL_MINUTES”, “30”))
