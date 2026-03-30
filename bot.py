@@ -65,4 +65,4 @@ schedule.run_pending()
 time.sleep(30)
 
 if **name** == “**main**”:
-main()
+main() 
