@@ -58,7 +58,7 @@ def generate_signals(snapshot):
         "- confidence: integer between 40 and 95\n"
         "- timeframe: one of 1H, 4H, 1D, 1W\n"
         "- entry/target/stop: realistic prices based on current price\n"
-        "- Be genuinely analytical - not every signal should be BUY"
+        "- Not every signal should be BUY"
     )
     try:
         response = client.messages.create(
