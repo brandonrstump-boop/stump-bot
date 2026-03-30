@@ -49,4 +49,4 @@ lines.append(”[” + t.get(“mode”, “PAPER”) + “] “ + t[“action�
 else:
 lines.append(“No trades executed this cycle”)
 lines.append(”\nNot financial advice. Trade at your own risk.”)
-send_message(”\n”.join(lines))
+send_message(”\n”.join(lines)) 
