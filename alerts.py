@@ -28,25 +28,29 @@ def send_telegram(signals, snapshot, executed, startup=False):
         return
     if not signals:
         return
-    lines = ["<b>STUMP SIGNAL REPORT</b>"]
+    lines = ["<b>STUMP SIGNALS</b>"]
     for sig in signals:
         ticker = sig.get("ticker", "?")
         action = sig.get("signal", "HOLD")
         conf = sig.get("confidence", 0)
         tf = sig.get("timeframe", "?")
-        reason = sig.get("reasoning", "")
         price = snapshot.get(ticker, {}).get("price", 0)
         chg = snapshot.get(ticker, {}).get("change_24h", 0)
         chg_str = ("+" if chg >= 0 else "") + str(round(chg, 2)) + "%"
-        lines.append("\n<b>" + ticker + "</b> - " + action + " (" + str(conf) + "% conf, " + tf + ")\nPrice: $" + str(round(price, 4)) + "  " + chg_str + " 24h\n" + reason[:120] + ("..." if len(reason) > 120 else ""))
-        if sig.get("entry"):
-            lines.append("Entry $" + str(sig["entry"]) + " > Target $" + str(sig["target"]) + " | Stop $" + str(sig["stop"]))
+        entry = sig.get("entry", "")
+        target = sig.get("target", "")
+        stop = sig.get("stop", "")
+        rr = sig.get("risk_reward", "")
+        line = "\n<b>" + ticker + "</b> " + action + " " + str(conf) + "% | " + tf + " | $" + str(round(price, 2)) + " " + chg_str
+        if entry:
+            line += "\nE:" + str(entry) + " T:" + str(target) + " S:" + str(stop) + " RR:" + rr
+        lines.append(line)
     lines.append("\n-----")
     if executed:
-        lines.append("<b>TRADES EXECUTED</b>")
+        lines.append("<b>EXECUTED</b>")
         for t in executed:
-            lines.append("[" + t.get("mode", "PAPER") + "] " + t["action"] + " $" + str(round(t["amount_usd"], 2)) + " of " + t["ticker"])
+            lines.append("[" + t.get("mode", "PAPER") + "] " + t["action"] + " $" + str(round(t["amount_usd"], 2)) + " " + t["ticker"])
     else:
-        lines.append("No trades executed this cycle")
-    lines.append("\nNot financial advice. Trade at your own risk.")
+        lines.append("No trades executed")
+    lines.append("\nNot financial advice.")
     send_message("\n".join(lines))
