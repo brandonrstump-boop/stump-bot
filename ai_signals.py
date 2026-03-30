@@ -2,12 +2,27 @@ import os
 import json
 import logging
 import anthropic
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 log = logging.getLogger("stump.ai")
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE_TO_TRADE", "75"))
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+def send_alert(text):
+    if not BOT_TOKEN or not CHAT_ID:
+        return
+    try:
+        requests.post(
+            "https://api.telegram.org/bot" + BOT_TOKEN + "/sendMessage",
+            json={"chat_id": CHAT_ID, "text": text},
+            timeout=10,
+        )
+    except Exception:
+        pass
 
 def fmt_price(price, asset_type):
     if asset_type == "crypto" and price < 1:
@@ -60,7 +75,12 @@ def generate_signals(snapshot):
         log.error("Failed to parse Claude response as JSON: " + str(e))
         return []
     except Exception as e:
-        log.error("Claude API error: " + str(e))
+        err_str = str(e)
+        if "credit balance is too low" in err_str:
+            log.error("Out of Anthropic credits")
+            send_alert("STUMP: Out of Anthropic credits. Bot has paused. Top up at console.anthropic.com to resume.")
+        else:
+            log.error("Claude API error: " + err_str)
         return []
 
 def is_actionable(signal):
