@@ -5,7 +5,7 @@ import anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
-log = logging.getLogger(“stump.ai”)
+
 client = anthropic.Anthropic(api_key=os.getenv(“ANTHROPIC_API_KEY”))
 MIN_CONFIDENCE = int(os.getenv(“MIN_CONFIDENCE_TO_TRADE”, “75”))
 
