@@ -2,24 +2,26 @@ import os
 import json
 import logging
 import requests
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from ai_signals import is_actionable
 
 load_dotenv()
 log = logging.getLogger("stump.trader")
-ALPACA_KEY_ID = os.getenv("ALPACA_KEY_ID")
-ALPACA_SECRET = os.getenv("ALPACA_SECRET_KEY")
-ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+ALPACA_KEY_ID    = os.getenv("ALPACA_KEY_ID")
+ALPACA_SECRET    = os.getenv("ALPACA_SECRET_KEY")
+ALPACA_BASE_URL  = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 MAX_POSITION_USD = float(os.getenv("MAX_POSITION_SIZE_USD", "50"))
 DAILY_LOSS_LIMIT = float(os.getenv("DAILY_LOSS_LIMIT_USD", "150"))
 KILL_SWITCH_FILE = Path("KILL_SWITCH")
 DAILY_STATE_FILE = Path("daily_pnl.json")
+PNL_LOG_FILE     = Path("signal_pnl.json")
+
 HEADERS = {
-    "APCA-API-KEY-ID": ALPACA_KEY_ID,
+    "APCA-API-KEY-ID":     ALPACA_KEY_ID,
     "APCA-API-SECRET-KEY": ALPACA_SECRET,
-    "Content-Type": "application/json",
+    "Content-Type":        "application/json",
 }
 
 def load_daily_state():
@@ -35,6 +37,33 @@ def load_daily_state():
 
 def save_daily_state(state):
     DAILY_STATE_FILE.write_text(json.dumps(state, indent=2))
+
+def load_pnl_log():
+    if PNL_LOG_FILE.exists():
+        try:
+            return json.loads(PNL_LOG_FILE.read_text())
+        except Exception:
+            pass
+    return []
+
+def save_pnl_log(log_data):
+    PNL_LOG_FILE.write_text(json.dumps(log_data, indent=2))
+
+def log_signal_for_tracking(signal, price, order_id):
+    pnl_log = load_pnl_log()
+    pnl_log.append({
+        "timestamp":  datetime.now(timezone.utc).isoformat(),
+        "ticker":     signal.get("ticker"),
+        "action":     signal.get("signal"),
+        "confidence": signal.get("confidence"),
+        "timeframe":  signal.get("timeframe"),
+        "entry_price": price,
+        "order_id":   order_id,
+        "closed":     False,
+        "exit_price": None,
+        "pnl":        None,
+    })
+    save_pnl_log(pnl_log)
 
 def is_kill_switch_active():
     if KILL_SWITCH_FILE.exists():
@@ -62,10 +91,10 @@ def get_account_info():
 def place_order(ticker, side, usd_amount, asset_type):
     symbol = ticker + "/USD" if asset_type == "crypto" else ticker
     order_payload = {
-        "symbol": symbol,
-        "notional": round(usd_amount, 2),
-        "side": side.lower(),
-        "type": "market",
+        "symbol":        symbol,
+        "notional":      round(usd_amount, 2),
+        "side":          side.lower(),
+        "type":          "market",
         "time_in_force": "gtc" if asset_type == "crypto" else "day",
     }
     try:
@@ -96,14 +125,15 @@ def execute_signals(signals, snapshot):
     buying_power = float(account.get("buying_power", 0))
     log.info("Buying power: $" + str(round(buying_power, 2)))
     for signal in signals:
-        ticker = signal.get("ticker", "")
-        action = signal.get("signal", "HOLD")
-        conf = signal.get("confidence", 0)
+        ticker     = signal.get("ticker", "")
+        action     = signal.get("signal", "HOLD")
+        conf       = signal.get("confidence", 0)
         if not is_actionable(signal):
             log.info(ticker + " " + action + " " + str(conf) + "% - below threshold, skipping")
             continue
         asset_data = snapshot.get(ticker, {})
         asset_type = asset_data.get("type", "stock")
+        entry_price = asset_data.get("price", 0)
         if asset_type == "stock" and not is_market_open():
             log.info(ticker + " - market closed, skipping")
             continue
@@ -111,20 +141,40 @@ def execute_signals(signals, snapshot):
         if trade_amount < 1:
             log.warning("Trade amount too small - skipping")
             continue
-        side = "buy" if action == "BUY" else "sell"
+        side  = "buy" if action == "BUY" else "sell"
         order = place_order(ticker, side, trade_amount, asset_type)
         if order:
             mode = "PAPER" if "paper" in ALPACA_BASE_URL else "LIVE"
             trade_record = {
-                "ticker": ticker,
-                "action": action,
+                "ticker":     ticker,
+                "action":     action,
                 "confidence": conf,
                 "amount_usd": trade_amount,
-                "order_id": order.get("id"),
+                "order_id":   order.get("id"),
                 "asset_type": asset_type,
-                "mode": mode,
+                "mode":       mode,
             }
             executed.append(trade_record)
             daily["trades"].append(trade_record)
+            log_signal_for_tracking(signal, entry_price, order.get("id"))
     save_daily_state(daily)
     return executed
+
+def get_pnl_summary():
+    pnl_log = load_pnl_log()
+    if not pnl_log:
+        return None
+    total    = len(pnl_log)
+    closed   = [t for t in pnl_log if t.get("closed")]
+    winners  = [t for t in closed if (t.get("pnl") or 0) > 0]
+    losers   = [t for t in closed if (t.get("pnl") or 0) < 0]
+    open_pos = total - len(closed)
+    return {
+        "total_signals": total,
+        "open":          open_pos,
+        "closed":        len(closed),
+        "winners":       len(winners),
+        "losers":        len(losers),
+        "win_rate":      round(len(winners) / len(closed) * 100, 1) if closed else 0,
+        "total_pnl":     round(sum(t.get("pnl") or 0 for t in closed), 2),
+    }
