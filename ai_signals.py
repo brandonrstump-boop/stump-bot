@@ -111,3 +111,4 @@ def generate_signals(snapshot):
 
 def is_actionable(signal):
     return signal.get("signal") in ("BUY", "SELL") and signal.get("confidence", 0) >= MIN_CONFIDENCE
+    
