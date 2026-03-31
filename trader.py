@@ -24,6 +24,26 @@ HEADERS = {
     "Content-Type":        "application/json",
 }
 
+# Tiered stop loss categories
+STABLE_STOCKS   = {"AAPL", "MSFT", "AMZN", "SPY", "QQQ", "NVDA", "AMD"}
+VOLATILE_STOCKS = {"TSLA", "COIN", "MSTR"}
+CRYPTO          = {"BTC", "ETH", "SOL", "XRP", "DOGE", "AVAX", "LINK", "ADA", "LTC", "DOT"}
+
+STOP_LOSS_PCT = {
+    "stable":   0.05,
+    "volatile": 0.08,
+    "crypto":   0.10,
+}
+
+def get_stop_loss_pct(ticker):
+    if ticker in STABLE_STOCKS:
+        return STOP_LOSS_PCT["stable"]
+    if ticker in VOLATILE_STOCKS:
+        return STOP_LOSS_PCT["volatile"]
+    if ticker in CRYPTO:
+        return STOP_LOSS_PCT["crypto"]
+    return STOP_LOSS_PCT["volatile"]
+
 def load_daily_state():
     today = str(date.today())
     if DAILY_STATE_FILE.exists():
@@ -96,26 +116,61 @@ def get_open_positions():
         held = {}
         for p in positions:
             symbol = p.get("symbol", "").replace("/USD", "")
-            held[symbol] = float(p.get("qty", 0))
+            held[symbol] = {
+                "qty":         float(p.get("qty", 0)),
+                "avg_entry":   float(p.get("avg_entry_price", 0)),
+                "market_value": float(p.get("market_value", 0)),
+                "unrealized_pl": float(p.get("unrealized_pl", 0)),
+                "unrealized_plpc": float(p.get("unrealized_plpc", 0)),
+            }
         return held
     except Exception as e:
         log.error("Positions fetch error: " + str(e))
         return {}
 
-def place_order(ticker, side, usd_amount, asset_type):
+def check_stop_losses(held_positions, snapshot):
+    stop_loss_sells = []
+    for ticker, pos in held_positions.items():
+        avg_entry = pos.get("avg_entry", 0)
+        if avg_entry <= 0:
+            continue
+        current_price = snapshot.get(ticker, {}).get("price", 0)
+        if current_price <= 0:
+            continue
+        stop_pct = get_stop_loss_pct(ticker)
+        loss_pct = (current_price - avg_entry) / avg_entry
+        if loss_pct <= -stop_pct:
+            log.warning(
+                ticker + " stop loss triggered: " +
+                str(round(loss_pct * 100, 2)) + "% loss " +
+                "(threshold: -" + str(round(stop_pct * 100, 0)) + "%)"
+            )
+            stop_loss_sells.append(ticker)
+    return stop_loss_sells
+
+def place_order(ticker, side, usd_amount, asset_type, qty=None):
     symbol = ticker + "/USD" if asset_type == "crypto" else ticker
-    order_payload = {
-        "symbol":        symbol,
-        "notional":      round(usd_amount, 2),
-        "side":          side.lower(),
-        "type":          "market",
-        "time_in_force": "gtc" if asset_type == "crypto" else "day",
-    }
+    if qty and side == "sell":
+        order_payload = {
+            "symbol":        symbol,
+            "qty":           str(qty),
+            "side":          "sell",
+            "type":          "market",
+            "time_in_force": "gtc" if asset_type == "crypto" else "day",
+        }
+    else:
+        order_payload = {
+            "symbol":        symbol,
+            "notional":      round(usd_amount, 2),
+            "side":          side.lower(),
+            "type":          "market",
+            "time_in_force": "gtc" if asset_type == "crypto" else "day",
+        }
     try:
         resp = requests.post(ALPACA_BASE_URL + "/v2/orders", headers=HEADERS, json=order_payload, timeout=10)
         resp.raise_for_status()
         order = resp.json()
-        log.info("Order placed: " + side.upper() + " $" + str(usd_amount) + " of " + symbol)
+        log.info("Order placed: " + side.upper() + " " + symbol)
         return order
     except requests.HTTPError as e:
         log.error("Order failed for " + symbol + ": " + str(e))
@@ -137,15 +192,42 @@ def execute_signals(signals, snapshot):
         log.warning("Could not verify account - skipping execution")
         return []
 
-    buying_power  = float(account.get("buying_power", 0))
+    buying_power   = float(account.get("buying_power", 0))
     held_positions = get_open_positions()
     log.info("Buying power: $" + str(round(buying_power, 2)))
     log.info("Held positions: " + str(list(held_positions.keys())))
 
+    # Check stop losses first
+    stop_loss_tickers = check_stop_losses(held_positions, snapshot)
+    for ticker in stop_loss_tickers:
+        pos = held_positions[ticker]
+        asset_type = "crypto" if ticker in CRYPTO else "stock"
+        if asset_type == "stock" and not is_market_open():
+            log.info(ticker + " stop loss - market closed, will execute at open")
+            continue
+        qty = pos.get("qty", 0)
+        order = place_order(ticker, "sell", 0, asset_type, qty=qty)
+        if order:
+            mode = "PAPER" if "paper" in ALPACA_BASE_URL else "LIVE"
+            stop_pct = get_stop_loss_pct(ticker)
+            record = {
+                "ticker":     ticker,
+                "action":     "SELL",
+                "confidence": 100,
+                "amount_usd": pos.get("market_value", 0),
+                "order_id":   order.get("id"),
+                "asset_type": asset_type,
+                "mode":       mode,
+                "reason":     "STOP LOSS -" + str(round(stop_pct * 100, 0)) + "%",
+            }
+            executed.append(record)
+            daily["trades"].append(record)
+
+    # Process signals
     for signal in signals:
-        ticker     = signal.get("ticker", "")
-        action     = signal.get("signal", "HOLD")
-        conf       = signal.get("confidence", 0)
+        ticker = signal.get("ticker", "")
+        action = signal.get("signal", "HOLD")
+        conf   = signal.get("confidence", 0)
 
         if not is_actionable(signal):
             log.info(ticker + " " + action + " " + str(conf) + "% - below threshold, skipping")
@@ -159,20 +241,22 @@ def execute_signals(signals, snapshot):
             log.info(ticker + " - market closed, skipping")
             continue
 
-        # SELL logic - only sell if we actually hold the asset
         if action == "SELL":
             if ticker not in held_positions:
                 log.info(ticker + " SELL signal but no position held - skipping")
                 continue
-            qty_held = held_positions[ticker]
-            if qty_held <= 0:
+            if ticker in stop_loss_tickers:
+                log.info(ticker + " already sold via stop loss - skipping")
+                continue
+            qty = held_positions[ticker].get("qty", 0)
+            if qty <= 0:
                 log.info(ticker + " SELL signal but zero quantity held - skipping")
                 continue
 
-        # BUY logic - only buy if we don't already hold it
         if action == "BUY":
-            if ticker in held_positions and held_positions[ticker] > 0:
-                log.info(ticker + " BUY signal but position already held - skipping")
+            buys_today = sum(1 for t in daily["trades"] if t.get("ticker") == ticker and t.get("action") == "BUY")
+            if buys_today >= 2:
+                log.info(ticker + " BUY signal but already bought twice today - skipping")
                 continue
 
         trade_amount = min(MAX_POSITION_USD, buying_power * 0.05)
@@ -180,8 +264,11 @@ def execute_signals(signals, snapshot):
             log.warning("Trade amount too small - skipping")
             continue
 
-        side  = "buy" if action == "BUY" else "sell"
-        order = place_order(ticker, side, trade_amount, asset_type)
+        if action == "SELL":
+            qty = held_positions[ticker].get("qty", 0)
+            order = place_order(ticker, "sell", 0, asset_type, qty=qty)
+        else:
+            order = place_order(ticker, "buy", trade_amount, asset_type)
 
         if order:
             mode = "PAPER" if "paper" in ALPACA_BASE_URL else "LIVE"
@@ -205,10 +292,10 @@ def get_pnl_summary():
     pnl_log = load_pnl_log()
     if not pnl_log:
         return None
-    total   = len(pnl_log)
-    closed  = [t for t in pnl_log if t.get("closed")]
-    winners = [t for t in closed if (t.get("pnl") or 0) > 0]
-    losers  = [t for t in closed if (t.get("pnl") or 0) < 0]
+    total    = len(pnl_log)
+    closed   = [t for t in pnl_log if t.get("closed")]
+    winners  = [t for t in closed if (t.get("pnl") or 0) > 0]
+    losers   = [t for t in closed if (t.get("pnl") or 0) < 0]
     open_pos = total - len(closed)
     return {
         "total_signals": total,
