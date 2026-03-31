@@ -45,35 +45,46 @@ def analyze_batch(batch):
         "s=BUY/SELL/HOLD, c=confidence 40-95, tf=1H/4H/1D/1W\n"
         "Be analytical. Not everything is a BUY."
     )
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=400,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw    = response.content[0].text
-        clean  = raw.replace("```json", "").replace("```", "").strip()
-        raw_signals = json.loads(clean)
-        signals = []
-        for s in raw_signals:
-            signals.append({
-                "ticker":     s.get("t", "?"),
-                "signal":     s.get("s", "HOLD"),
-                "confidence": s.get("c", 0),
-                "timeframe":  s.get("tf", "4H"),
-            })
-        return signals
-    except json.JSONDecodeError as e:
-        log.error("Failed to parse batch response: " + str(e))
-        return []
-    except Exception as e:
-        err_str = str(e)
-        if "credit balance is too low" in err_str:
-            log.error("Out of Anthropic credits")
-            send_alert("STUMP: Out of credits. Top up at console.anthropic.com.")
-        else:
+    models = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
+    for model in models:
+        try:
+            if model != models[0]:
+                log.warning("Sonnet unavailable - falling back to Haiku")
+            response = client.messages.create(
+                model=model,
+                max_tokens=400,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw   = response.content[0].text
+            clean = raw.replace("```json", "").replace("```", "").strip()
+            raw_signals = json.loads(clean)
+            signals = []
+            for s in raw_signals:
+                signals.append({
+                    "ticker":     s.get("t", "?"),
+                    "signal":     s.get("s", "HOLD"),
+                    "confidence": s.get("c", 0),
+                    "timeframe":  s.get("tf", "4H"),
+                })
+            if model != models[0]:
+                log.info("Haiku fallback succeeded")
+            return signals
+        except json.JSONDecodeError as e:
+            log.error("Failed to parse batch response: " + str(e))
+            return []
+        except Exception as e:
+            err_str = str(e)
+            if "credit balance is too low" in err_str:
+                log.error("Out of Anthropic credits")
+                send_alert("STUMP: Out of credits. Top up at console.anthropic.com.")
+                return []
+            if "overloaded" in err_str.lower() or "529" in err_str:
+                log.warning("Model " + model + " overloaded - trying next")
+                continue
             log.error("Claude API error: " + err_str)
-        return []
+            return []
+    log.error("All models overloaded - skipping batch")
+    return []
 
 def generate_signals(snapshot):
     if not snapshot:
