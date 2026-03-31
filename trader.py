@@ -52,16 +52,16 @@ def save_pnl_log(log_data):
 def log_signal_for_tracking(signal, price, order_id):
     pnl_log = load_pnl_log()
     pnl_log.append({
-        "timestamp":  datetime.now(timezone.utc).isoformat(),
-        "ticker":     signal.get("ticker"),
-        "action":     signal.get("signal"),
-        "confidence": signal.get("confidence"),
-        "timeframe":  signal.get("timeframe"),
+        "timestamp":   datetime.now(timezone.utc).isoformat(),
+        "ticker":      signal.get("ticker"),
+        "action":      signal.get("signal"),
+        "confidence":  signal.get("confidence"),
+        "timeframe":   signal.get("timeframe"),
         "entry_price": price,
-        "order_id":   order_id,
-        "closed":     False,
-        "exit_price": None,
-        "pnl":        None,
+        "order_id":    order_id,
+        "closed":      False,
+        "exit_price":  None,
+        "pnl":         None,
     })
     save_pnl_log(pnl_log)
 
@@ -86,6 +86,20 @@ def get_account_info():
         return resp.json()
     except Exception as e:
         log.error("Account fetch error: " + str(e))
+        return {}
+
+def get_open_positions():
+    try:
+        resp = requests.get(ALPACA_BASE_URL + "/v2/positions", headers=HEADERS, timeout=10)
+        resp.raise_for_status()
+        positions = resp.json()
+        held = {}
+        for p in positions:
+            symbol = p.get("symbol", "").replace("/USD", "")
+            held[symbol] = float(p.get("qty", 0))
+        return held
+    except Exception as e:
+        log.error("Positions fetch error: " + str(e))
         return {}
 
 def place_order(ticker, side, usd_amount, asset_type):
@@ -122,27 +136,53 @@ def execute_signals(signals, snapshot):
     if not account:
         log.warning("Could not verify account - skipping execution")
         return []
-    buying_power = float(account.get("buying_power", 0))
+
+    buying_power  = float(account.get("buying_power", 0))
+    held_positions = get_open_positions()
     log.info("Buying power: $" + str(round(buying_power, 2)))
+    log.info("Held positions: " + str(list(held_positions.keys())))
+
     for signal in signals:
         ticker     = signal.get("ticker", "")
         action     = signal.get("signal", "HOLD")
         conf       = signal.get("confidence", 0)
+
         if not is_actionable(signal):
             log.info(ticker + " " + action + " " + str(conf) + "% - below threshold, skipping")
             continue
-        asset_data = snapshot.get(ticker, {})
-        asset_type = asset_data.get("type", "stock")
+
+        asset_data  = snapshot.get(ticker, {})
+        asset_type  = asset_data.get("type", "stock")
         entry_price = asset_data.get("price", 0)
+
         if asset_type == "stock" and not is_market_open():
             log.info(ticker + " - market closed, skipping")
             continue
+
+        # SELL logic - only sell if we actually hold the asset
+        if action == "SELL":
+            if ticker not in held_positions:
+                log.info(ticker + " SELL signal but no position held - skipping")
+                continue
+            qty_held = held_positions[ticker]
+            if qty_held <= 0:
+                log.info(ticker + " SELL signal but zero quantity held - skipping")
+                continue
+
+        # BUY logic - only buy if we don't already hold it
+        if action == "BUY":
+            if ticker in held_positions and held_positions[ticker] > 0:
+                log.info(ticker + " BUY signal but position already held - skipping")
+                continue
+
         trade_amount = min(MAX_POSITION_USD, buying_power * 0.05)
         if trade_amount < 1:
             log.warning("Trade amount too small - skipping")
             continue
+
         side  = "buy" if action == "BUY" else "sell"
         order = place_order(ticker, side, trade_amount, asset_type)
+
         if order:
             mode = "PAPER" if "paper" in ALPACA_BASE_URL else "LIVE"
             trade_record = {
@@ -157,6 +197,7 @@ def execute_signals(signals, snapshot):
             executed.append(trade_record)
             daily["trades"].append(trade_record)
             log_signal_for_tracking(signal, entry_price, order.get("id"))
+
     save_daily_state(daily)
     return executed
 
@@ -164,10 +205,10 @@ def get_pnl_summary():
     pnl_log = load_pnl_log()
     if not pnl_log:
         return None
-    total    = len(pnl_log)
-    closed   = [t for t in pnl_log if t.get("closed")]
-    winners  = [t for t in closed if (t.get("pnl") or 0) > 0]
-    losers   = [t for t in closed if (t.get("pnl") or 0) < 0]
+    total   = len(pnl_log)
+    closed  = [t for t in pnl_log if t.get("closed")]
+    winners = [t for t in closed if (t.get("pnl") or 0) > 0]
+    losers  = [t for t in closed if (t.get("pnl") or 0) < 0]
     open_pos = total - len(closed)
     return {
         "total_signals": total,
