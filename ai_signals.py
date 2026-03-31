@@ -10,7 +10,7 @@ log = logging.getLogger("stump.ai")
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE_TO_TRADE", "75"))
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID")
 
 def send_alert(text):
     if not BOT_TOKEN or not CHAT_ID:
@@ -31,11 +31,11 @@ def fmt_price(price, asset_type):
         return "$" + "{:,.0f}".format(price)
     return "$" + str(round(price, 2))
 
-def generate_signals(snapshot):
-    if not snapshot:
+def analyze_batch(batch):
+    if not batch:
         return []
     lines = []
-    for ticker, d in snapshot.items():
+    for ticker, d in batch.items():
         lines.append(ticker + "=" + fmt_price(d["price"], d["type"]) + " " + str(d["change_24h"]) + "%")
     snapshot_str = " | ".join(lines)
     prompt = (
@@ -51,8 +51,8 @@ def generate_signals(snapshot):
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = response.content[0].text
-        clean = raw.replace("```json", "").replace("```", "").strip()
+        raw    = response.content[0].text
+        clean  = raw.replace("```json", "").replace("```", "").strip()
         raw_signals = json.loads(clean)
         signals = []
         for s in raw_signals:
@@ -62,10 +62,9 @@ def generate_signals(snapshot):
                 "confidence": s.get("c", 0),
                 "timeframe":  s.get("tf", "4H"),
             })
-        log.info("Signals: " + str([(s["ticker"], s["signal"], s["confidence"]) for s in signals]))
         return signals
     except json.JSONDecodeError as e:
-        log.error("Failed to parse response: " + str(e))
+        log.error("Failed to parse batch response: " + str(e))
         return []
     except Exception as e:
         err_str = str(e)
@@ -75,6 +74,29 @@ def generate_signals(snapshot):
         else:
             log.error("Claude API error: " + err_str)
         return []
+
+def generate_signals(snapshot):
+    if not snapshot:
+        return []
+
+    tickers = list(snapshot.keys())
+    batch_size = 5
+    batches = []
+    for i in range(0, len(tickers), batch_size):
+        batch_tickers = tickers[i:i + batch_size]
+        batch = {t: snapshot[t] for t in batch_tickers}
+        batches.append(batch)
+
+    log.info("Running " + str(len(batches)) + " batch(es) of up to " + str(batch_size) + " assets each")
+
+    all_signals = []
+    for i, batch in enumerate(batches):
+        log.info("Batch " + str(i + 1) + ": " + str(list(batch.keys())))
+        signals = analyze_batch(batch)
+        all_signals.extend(signals)
+
+    log.info("Signals: " + str([(s["ticker"], s["signal"], s["confidence"]) for s in all_signals]))
+    return all_signals
 
 def is_actionable(signal):
     return signal.get("signal") in ("BUY", "SELL") and signal.get("confidence", 0) >= MIN_CONFIDENCE
