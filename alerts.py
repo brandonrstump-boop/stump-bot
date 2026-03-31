@@ -34,20 +34,30 @@ def send_telegram(signals, snapshot, executed, startup=False):
     lines = ["<b>STUMP</b> " + now]
 
     for sig in signals:
-        ticker = sig.get("ticker", "?")
-        action = sig.get("signal", "HOLD")
-        conf   = sig.get("confidence", 0)
-        tf     = sig.get("timeframe", "?")
-        chg    = snapshot.get(ticker, {}).get("change_24h", 0)
+        ticker  = sig.get("ticker", "?")
+        action  = sig.get("signal", "HOLD")
+        conf    = sig.get("confidence", 0)
+        tf      = sig.get("timeframe", "?")
+        chg     = snapshot.get(ticker, {}).get("change_24h", 0)
         chg_str = ("+" if chg >= 0 else "") + str(round(chg, 2)) + "%"
-        icon = "+" if action == "BUY" else ("-" if action == "SELL" else "~")
+        icon    = "+" if action == "BUY" else ("-" if action == "SELL" else "~")
         lines.append(icon + " <b>" + ticker + "</b> " + action + " " + str(conf) + "% | " + tf + " | " + chg_str)
 
     lines.append("")
+
     if executed:
-        lines.append("<b>TRADED:</b>")
-        for t in executed:
-            lines.append("[" + t.get("mode", "PAPER") + "] " + t["action"] + " $" + str(round(t["amount_usd"], 2)) + " " + t["ticker"])
+        stop_losses = [t for t in executed if t.get("reason", "").startswith("STOP LOSS")]
+        normal      = [t for t in executed if not t.get("reason", "").startswith("STOP LOSS")]
+
+        if stop_losses:
+            lines.append("<b>STOP LOSS TRIGGERED:</b>")
+            for t in stop_losses:
+                lines.append("  " + t["ticker"] + " sold - " + t.get("reason", ""))
+
+        if normal:
+            lines.append("<b>TRADED:</b>")
+            for t in normal:
+                lines.append("  [" + t.get("mode", "PAPER") + "] " + t["action"] + " $" + str(round(t["amount_usd"], 2)) + " " + t["ticker"])
     else:
         lines.append("No trades this run.")
 
@@ -55,11 +65,10 @@ def send_telegram(signals, snapshot, executed, startup=False):
 
 def send_daily_summary():
     from trader import get_pnl_summary
-    from market_data import get_market_snapshot
 
-    ALPACA_KEY_ID  = os.getenv("ALPACA_KEY_ID")
-    ALPACA_SECRET  = os.getenv("ALPACA_SECRET_KEY")
-    ALPACA_BASE    = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+    ALPACA_KEY_ID = os.getenv("ALPACA_KEY_ID")
+    ALPACA_SECRET = os.getenv("ALPACA_SECRET_KEY")
+    ALPACA_BASE   = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
     HEADERS = {
         "APCA-API-KEY-ID":     ALPACA_KEY_ID,
         "APCA-API-SECRET-KEY": ALPACA_SECRET,
@@ -69,31 +78,30 @@ def send_daily_summary():
     lines.append(datetime.now(timezone.utc).strftime("%A %b %d, %Y"))
     lines.append("")
 
-    # Account info
     try:
         resp = requests.get(ALPACA_BASE + "/v2/account", headers=HEADERS, timeout=10)
         a = resp.json()
-        equity   = float(a.get("equity", 0))
-        last_eq  = float(a.get("last_equity", equity))
-        day_pl   = equity - last_eq
-        day_pct  = ((day_pl / last_eq) * 100) if last_eq else 0
+        equity  = float(a.get("equity", 0))
+        last_eq = float(a.get("last_equity", equity))
+        day_pl  = equity - last_eq
+        day_pct = ((day_pl / last_eq) * 100) if last_eq else 0
         lines.append("<b>Portfolio:</b> $" + "{:,.2f}".format(equity))
         lines.append("<b>Today P&L:</b> " + ("+" if day_pl >= 0 else "") + "$" + "{:,.2f}".format(day_pl) + " (" + ("+" if day_pct >= 0 else "") + str(round(day_pct, 2)) + "%)")
-    except Exception as e:
+    except Exception:
         lines.append("Portfolio: unavailable")
 
     lines.append("")
 
-    # Positions
     try:
         resp2 = requests.get(ALPACA_BASE + "/v2/positions", headers=HEADERS, timeout=10)
         positions = resp2.json()
         if positions:
             lines.append("<b>Open Positions (" + str(len(positions)) + "):</b>")
             for p in positions:
-                sym = p["symbol"].replace("/USD", "")
-                pl  = float(p.get("unrealized_pl", 0))
-                lines.append("  " + sym + " " + ("+" if pl >= 0 else "") + "$" + str(round(pl, 2)))
+                sym  = p["symbol"].replace("/USD", "")
+                pl   = float(p.get("unrealized_pl", 0))
+                plpc = float(p.get("unrealized_plpc", 0)) * 100
+                lines.append("  " + sym + " " + ("+" if pl >= 0 else "") + "$" + str(round(pl, 2)) + " (" + ("+" if plpc >= 0 else "") + str(round(plpc, 2)) + "%)")
         else:
             lines.append("<b>Open Positions:</b> None")
     except Exception:
@@ -101,11 +109,10 @@ def send_daily_summary():
 
     lines.append("")
 
-    # Signal P&L tracking
     pnl = get_pnl_summary()
     if pnl and pnl["total_signals"] > 0:
         lines.append("<b>Signal Accuracy:</b>")
-        lines.append("  Total signals traded: " + str(pnl["total_signals"]))
+        lines.append("  Signals traded: " + str(pnl["total_signals"]))
         lines.append("  Open: " + str(pnl["open"]) + " | Closed: " + str(pnl["closed"]))
         if pnl["closed"] > 0:
             lines.append("  Win rate: " + str(pnl["win_rate"]) + "%")
@@ -114,6 +121,7 @@ def send_daily_summary():
         lines.append("<b>Signal Accuracy:</b> No closed trades yet")
 
     lines.append("")
-    lines.append("Next signals in ~30 min. Not financial advice.")
+    lines.append("Stop losses: Stable 5% | Volatile 8% | Crypto 10%")
+    lines.append("Not financial advice.")
 
     send_message("\n".join(lines))
