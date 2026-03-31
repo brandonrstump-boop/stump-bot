@@ -24,33 +24,40 @@ def send_message(text):
 
 def send_telegram(signals, snapshot, executed, startup=False):
     if startup:
-        send_message("Stump Trader is online.\nBot started. Analysis cycles running.\nNot financial advice.")
+        send_message("Stump is online. Running every 30 min.")
         return
     if not signals:
         return
-    lines = ["<b>STUMP SIGNALS</b>"]
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%H:%M UTC")
+
+    lines = ["<b>STUMP</b> " + now]
+
     for sig in signals:
         ticker = sig.get("ticker", "?")
         action = sig.get("signal", "HOLD")
         conf = sig.get("confidence", 0)
         tf = sig.get("timeframe", "?")
-        price = snapshot.get(ticker, {}).get("price", 0)
         chg = snapshot.get(ticker, {}).get("change_24h", 0)
         chg_str = ("+" if chg >= 0 else "") + str(round(chg, 2)) + "%"
-        entry = sig.get("entry", "")
-        target = sig.get("target", "")
-        stop = sig.get("stop", "")
-        rr = sig.get("risk_reward", "")
-        line = "\n<b>" + ticker + "</b> " + action + " " + str(conf) + "% | " + tf + " | $" + str(round(price, 2)) + " " + chg_str
-        if entry:
-            line += "\nE:" + str(entry) + " T:" + str(target) + " S:" + str(stop) + " RR:" + rr
-        lines.append(line)
-    lines.append("\n-----")
+
+        if action == "BUY":
+            icon = "+"
+        elif action == "SELL":
+            icon = "-"
+        else:
+            icon = "~"
+
+        lines.append(icon + " <b>" + ticker + "</b> " + action + " " + str(conf) + "% | " + tf + " | " + chg_str)
+
     if executed:
-        lines.append("<b>EXECUTED</b>")
+        lines.append("")
+        lines.append("<b>TRADED:</b>")
         for t in executed:
             lines.append("[" + t.get("mode", "PAPER") + "] " + t["action"] + " $" + str(round(t["amount_usd"], 2)) + " " + t["ticker"])
     else:
-        lines.append("No trades executed")
-    lines.append("\nNot financial advice.")
+        lines.append("")
+        lines.append("No trades this run.")
+
     send_message("\n".join(lines))
