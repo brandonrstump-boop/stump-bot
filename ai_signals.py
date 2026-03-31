@@ -36,49 +36,42 @@ def generate_signals(snapshot):
         return []
     lines = []
     for ticker, d in snapshot.items():
-        price_str = fmt_price(d["price"], d["type"])
-        lines.append(ticker + " (" + d["type"] + "): price=" + price_str + ", 24h=" + str(d["change_24h"]) + "%, vol=" + str(d.get("volume", "N/A")))
-    snapshot_str = "\n".join(lines)
+        lines.append(ticker + "=" + fmt_price(d["price"], d["type"]) + " " + str(d["change_24h"]) + "%")
+    snapshot_str = " | ".join(lines)
     prompt = (
-        "You are a quantitative trading analyst AI named Stump.\n"
-        "Analyze the following real-time market snapshot and generate trading signals.\n\n"
-        "MARKET SNAPSHOT:\n" + snapshot_str + "\n\n"
-        "MACRO CONTEXT:\n"
-        "- VIX: ~21 (moderate volatility)\n"
-        "- DXY: ~104 (strong dollar)\n"
-        "- Fed: rates on hold\n"
-        "- Gold: ~$3,100\n"
-        "- 10Y yield: ~4.35%\n\n"
-        "For EACH ticker in the snapshot, generate a signal.\n"
-        "Respond ONLY with a valid JSON array, no markdown, no explanation outside JSON.\n\n"
-        "Format exactly like this:\n"
-        "[{\"ticker\":\"BTC\",\"signal\":\"BUY\",\"confidence\":72,\"timeframe\":\"4H\",\"reasoning\":\"2-3 sentences.\",\"entry\":82100,\"target\":86000,\"stop\":80200,\"risk_reward\":\"1:2.1\"}]\n\n"
-        "Rules:\n"
-        "- signal must be exactly: BUY, SELL, or HOLD\n"
-        "- confidence: integer between 40 and 95\n"
-        "- timeframe: one of 1H, 4H, 1D, 1W\n"
-        "- entry/target/stop: realistic prices based on current price\n"
-        "- Not every signal should be BUY"
+        "Market data: " + snapshot_str + "\n"
+        "Return ONLY a JSON array, no markdown.\n"
+        "Format: [{\"t\":\"BTC\",\"s\":\"BUY\",\"c\":72,\"tf\":\"4H\"}]\n"
+        "s=BUY/SELL/HOLD, c=confidence 40-95, tf=1H/4H/1D/1W\n"
+        "Be analytical. Not everything is a BUY."
     )
     try:
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1500,
+            max_tokens=400,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = response.content[0].text
         clean = raw.replace("```json", "").replace("```", "").strip()
-        signals = json.loads(clean)
+        raw_signals = json.loads(clean)
+        signals = []
+        for s in raw_signals:
+            signals.append({
+                "ticker":     s.get("t", "?"),
+                "signal":     s.get("s", "HOLD"),
+                "confidence": s.get("c", 0),
+                "timeframe":  s.get("tf", "4H"),
+            })
         log.info("Signals: " + str([(s["ticker"], s["signal"], s["confidence"]) for s in signals]))
         return signals
     except json.JSONDecodeError as e:
-        log.error("Failed to parse Claude response as JSON: " + str(e))
+        log.error("Failed to parse response: " + str(e))
         return []
     except Exception as e:
         err_str = str(e)
         if "credit balance is too low" in err_str:
             log.error("Out of Anthropic credits")
-            send_alert("STUMP: Out of Anthropic credits. Bot has paused. Top up at console.anthropic.com to resume.")
+            send_alert("STUMP: Out of credits. Top up at console.anthropic.com.")
         else:
             log.error("Claude API error: " + err_str)
         return []
