@@ -115,7 +115,7 @@ def get_open_positions():
         positions = resp.json()
         held = {}
         for p in positions:
-            symbol = p.get("symbol", "").replace("/USD", "")
+            symbol = p.get("symbol", "").replace("/USD", "").replace("USD", "")
             held[symbol] = {
                 "qty":         float(p.get("qty", 0)),
                 "avg_entry":   float(p.get("avg_entry_price", 0)),
