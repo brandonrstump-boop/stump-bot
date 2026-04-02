@@ -36,7 +36,7 @@ def get_stock_prices(tickers):
     symbols = ",".join(tickers)
     result  = {}
     try:
-        resp = requests.get("trades", headers=headers, params={"symbols": symbols, "feed": "iex"}, timeout=10)
+        resp = requests.get("https://data.alpaca.markets/v2/stocks/trades/1trades", headers=headers, params={"symbols": symbols, "feed": "iex"}, timeout=10)
         resp.raise_for_status()
         trades = resp.json().get("trades", {})
     except Exception as e:
