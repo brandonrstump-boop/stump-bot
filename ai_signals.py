@@ -6,11 +6,16 @@ import requests
 from dotenv import load_dotenv
 
 load_dotenv()
-log = logging.getLogger("stump.ai")
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE_TO_TRADE", "75"))
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID")
+log            = logging.getLogger("stump.ai")
+client         = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+MIN_CONFIDENCE = int(os.getenv("MIN_CONFIDENCE_TO_TRADE", "65"))
+BOT_TOKEN      = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID        = os.getenv("TELEGRAM_CHAT_ID")
+
+MACRO_CONTEXT = (
+    "Macro: VIX=~21 (moderate vol) | DXY=~104 (strong dollar) | "
+    "Fed=rates on hold | Gold=~$3100 | 10Y yield=~4.35%"
+)
 
 def send_alert(text):
     if not BOT_TOKEN or not CHAT_ID:
@@ -24,6 +29,13 @@ def send_alert(text):
     except Exception:
         pass
 
+def fmt_volume(vol):
+    v = float(vol) if vol else 0
+    if v >= 1_000_000_000: return str(round(v / 1_000_000_000, 1)) + "B"
+    if v >= 1_000_000:     return str(round(v / 1_000_000, 1)) + "M"
+    if v >= 1_000:         return str(round(v / 1_000, 1)) + "K"
+    return str(round(v, 0))
+
 def fmt_price(price, asset_type):
     if asset_type == "crypto" and price < 1:
         return "$" + str(round(price, 4))
@@ -36,13 +48,24 @@ def analyze_batch(batch):
         return []
     lines = []
     for ticker, d in batch.items():
-        lines.append(ticker + "=" + fmt_price(d["price"], d["type"]) + " " + str(d["change_24h"]) + "%")
+        change_1h  = d.get("change_1h", 0)
+        change_24h = d.get("change_24h", 0)
+        vol_str    = fmt_volume(d.get("volume", 0))
+        line = (
+            ticker + "=" + fmt_price(d["price"], d["type"]) +
+            " 1h=" + str(change_1h) + "%" +
+            " 24h=" + str(change_24h) + "%" +
+            " vol=" + vol_str
+        )
+        lines.append(line)
     snapshot_str = " | ".join(lines)
     prompt = (
-        "Market data: " + snapshot_str + "\n"
+        "Market data: " + snapshot_str + "\n" +
+        MACRO_CONTEXT + "\n"
         "Return ONLY a JSON array, no markdown.\n"
         "Format: [{\"t\":\"BTC\",\"s\":\"BUY\",\"c\":72,\"tf\":\"4H\"}]\n"
         "s=BUY/SELL/HOLD, c=confidence 40-95, tf=1H/4H/1D/1W\n"
+        "Use 1h change for short-term momentum, 24h for trend. Use volume to confirm moves.\n"
         "Be analytical. Not everything is a BUY."
     )
     models = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
@@ -52,18 +75,22 @@ def analyze_batch(batch):
                 log.warning("Sonnet unavailable - falling back to Haiku")
             response = client.messages.create(
                 model=model,
-                max_tokens=400,
+                max_tokens=500,
                 messages=[{"role": "user", "content": prompt}],
             )
-            raw   = response.content[0].text
-            clean = raw.replace("```json", "").replace("```", "").strip()
+            raw         = response.content[0].text
+            clean       = raw.replace("```json", "").replace("```", "").strip()
             raw_signals = json.loads(clean)
-            signals = []
+            signals     = []
             for s in raw_signals:
+                try:
+                    conf = int(s.get("c", 0))
+                except (ValueError, TypeError):
+                    conf = 0
                 signals.append({
                     "ticker":     s.get("t", "?"),
                     "signal":     s.get("s", "HOLD"),
-                    "confidence": int(s.get("c", 0)),
+                    "confidence": conf,
                     "timeframe":  s.get("tf", "4H"),
                 })
             if model != models[0]:
@@ -89,26 +116,21 @@ def analyze_batch(batch):
 def generate_signals(snapshot):
     if not snapshot:
         return []
-
-    tickers = list(snapshot.keys())
+    tickers    = list(snapshot.keys())
     batch_size = 5
-    batches = []
+    batches    = []
     for i in range(0, len(tickers), batch_size):
         batch_tickers = tickers[i:i + batch_size]
-        batch = {t: snapshot[t] for t in batch_tickers}
+        batch         = {t: snapshot[t] for t in batch_tickers}
         batches.append(batch)
-
     log.info("Running " + str(len(batches)) + " batch(es) of up to " + str(batch_size) + " assets each")
-
     all_signals = []
     for i, batch in enumerate(batches):
         log.info("Batch " + str(i + 1) + ": " + str(list(batch.keys())))
         signals = analyze_batch(batch)
         all_signals.extend(signals)
-
     log.info("Signals: " + str([(s["ticker"], s["signal"], s["confidence"]) for s in all_signals]))
     return all_signals
 
 def is_actionable(signal):
     return signal.get("signal") in ("BUY", "SELL") and signal.get("confidence", 0) >= MIN_CONFIDENCE
-    
