@@ -63,7 +63,7 @@ def analyze_batch(batch):
                 signals.append({
                     "ticker":     s.get("t", "?"),
                     "signal":     s.get("s", "HOLD"),
-                    "confidence": s.get("c", 0),
+                    "confidence": int(s.get("c", 0)),
                     "timeframe":  s.get("tf", "4H"),
                 })
             if model != models[0]:
