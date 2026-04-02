@@ -54,7 +54,7 @@ def get_stock_prices(tickers):
         change_24h = 0.0
         volume     = 0
         if len(bars) >= 2:
-            prev_close = bars[-2].get("c", price)
+            prev_close = bars[-2].get("c", 0)
             change_24h = round(((price - prev_close) / prev_close) * 100, 2) if prev_close else 0
             volume     = bars[-1].get("v", 0)
         elif len(bars) == 1:
