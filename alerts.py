@@ -25,13 +25,13 @@ def send_message(text):
 
 def send_telegram(signals, snapshot, executed, startup=False):
     if startup:
-        send_message("Stump is online. Running every 30 min.")
+        send_message("Stump-Bot is online. Running every 30 min.")
         return
     if not signals:
         return
 
     now = datetime.now(timezone.utc).strftime("%H:%M UTC")
-    lines = ["<b>STUMP</b> " + now]
+    lines = ["<b>STUMP-BOT</b> " + now]
 
     for sig in signals:
         ticker  = sig.get("ticker", "?")
